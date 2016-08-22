@@ -75,21 +75,25 @@ function Operation() {
     errorReactions: []
   };
 
-  operation.fail = function(error) {
+  operation.fail = function (error) {
     operation.data = error;
     operation.status = "error";
-    operation.errorReactions.forEach(onError => onError(error));
+    operation.errorReactions.forEach(onError => {
+      onError(error)
+    });
     operation.errorReactions = [];
   };
 
-  operation.succeed = function(result) {
+  operation.succeed = function (result) {
     operation.data = result;
     operation.status = "success";
-    operation.successReactions.forEach(onSuccess => onSuccess(result));
+    operation.successReactions.forEach(onSuccess => {
+      onSuccess(result)
+    });
     operation.successReactions = [];
   };
 
-  operation.nodeCallback = function(error, result) {
+  operation.nodeCallback = function (error, result) {
     if (error) {
       operation.fail(error);
       return;
@@ -98,19 +102,47 @@ function Operation() {
     operation.succeed(result);
   };
 
-  operation.onCompletion = function(success, error) {
-    if (this.status === "success") {
-      success && success(this.data);
-    } else if (this.status === "error") {
-      error && error(this.data);
-    } else {
-      success && this.successReactions.push(success);
-      error && this.errorReactions.push(error);
+  operation.onCompletion = function (success, error) {
+    const completionOp = new Operation();
+
+    function successHandler(data) {
+      if (success) {
+        let op = success(data);
+
+        if (op && op.forwardCompletion) {
+          op.forwardCompletion(completionOp);
+        }
+      }
     }
+
+    function errorHandler(err) {
+      if (error) {
+        let op = error(err);
+
+        if (op && op.forwardCompletion) {
+          op.forwardCompletion(completionOp);
+        }
+      }
+    }
+
+    if (this.status === "success") {
+      successHandler(this.data);
+    } else if (this.status === "error") {
+      errorHandler(this.data);
+    } else {
+      this.successReactions.push(successHandler);
+      this.errorReactions.push(errorHandler);
+    }
+
+    return completionOp;
   };
 
-  operation.onFailure = function(onError) {
+  operation.onFailure = function (onError) {
     operation.onCompletion(null, onError);
+  };
+
+  operation.forwardCompletion = function (op) {
+    op.onCompletion(op.succeed, op.fail);
   };
 
   return operation;
@@ -125,9 +157,21 @@ suite.only("Operations");
 test("register success callback async", (done) => {
   let currentCity = fetchCurrentCity();
 
-  doLater(function() {
+  doLater(function () {
     currentCity.onCompletion(() => done());
   });
+});
+
+test("life is full of async, nesting is inevitable, let's do something about it", () => {
+
+  let weatherOp = fetchCurrentCity().onCompletion((city) => {
+    return fetchWeather(city);
+  });
+
+  //some other code needs weather
+  weatherOp.onCompletion((weather) => {
+    console.log("get weather after a while: ", weather);
+  })
 });
 
 test("lexical parallelism", (done) => {
