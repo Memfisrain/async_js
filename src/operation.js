@@ -44,7 +44,7 @@ function getForecast(city, callback) {
 }
 
 function fetchCurrentCity() {
-  let operation = new Operation();
+  let operation = new Operation("fetchCity");
 
   getCurrentCity(operation.nodeCallback);
 
@@ -52,7 +52,7 @@ function fetchCurrentCity() {
 }
 
 function fetchWeather(city) {
-  let operation = new Operation();
+  let operation = new Operation('fetchWeather');
 
   getWeather(city, operation.nodeCallback);
 
@@ -67,10 +67,11 @@ function fetchForecast(city) {
   return operation;
 }
 
-function Operation() {
+function Operation(name) {
   const operation = {
     status: "pending",
     data: "",
+    name: name || "",
     successReactions: [],
     errorReactions: []
   };
@@ -78,18 +79,14 @@ function Operation() {
   operation.fail = function (error) {
     operation.data = error;
     operation.status = "error";
-    operation.errorReactions.forEach(onError => {
-      onError(error)
-    });
+    operation.errorReactions.forEach(onError => onError(error));
     operation.errorReactions = [];
   };
 
   operation.succeed = function (result) {
     operation.data = result;
     operation.status = "success";
-    operation.successReactions.forEach(onSuccess => {
-      onSuccess(result)
-    });
+    operation.successReactions.forEach(onSuccess => onSuccess(result));
     operation.successReactions = [];
   };
 
@@ -102,47 +99,47 @@ function Operation() {
     operation.succeed(result);
   };
 
-  operation.onCompletion = function (success, error) {
-    const completionOp = new Operation();
-
-    function successHandler(data) {
-      if (success) {
-        let op = success(data);
-
-        if (op && op.forwardCompletion) {
-          op.forwardCompletion(completionOp);
-        }
-      }
-    }
-
-    function errorHandler(err) {
-      if (error) {
-        let op = error(err);
-
-        if (op && op.forwardCompletion) {
-          op.forwardCompletion(completionOp);
-        }
-      }
-    }
-
-    if (this.status === "success") {
-      successHandler(this.data);
-    } else if (this.status === "error") {
-      errorHandler(this.data);
-    } else {
-      this.successReactions.push(successHandler);
-      this.errorReactions.push(errorHandler);
-    }
-
-    return completionOp;
-  };
-
   operation.onFailure = function (onError) {
     operation.onCompletion(null, onError);
   };
 
   operation.forwardCompletion = function (op) {
-    op.onCompletion(op.succeed, op.fail);
+    operation.onCompletion(op.succeed, op.fail);
+  };
+
+  operation.onCompletion = function (success, error) {
+    const completionOp = new Operation("tempo from onCompletion");
+
+    function successHandler() {
+      if (success) {
+        let op = success(operation.data);
+
+        if (op && op.onCompletion) {
+          op.forwardCompletion(completionOp);
+        }
+      }
+    }
+
+    function errorHandler() {
+      if (error) {
+        let op = error(operation.data);
+
+        if (op && op.forwardCompletion) {
+          op.forwardCompletion(completionOp);
+        }
+      }
+    }
+
+    if (operation.status === "success") {
+      successHandler();
+    } else if (operation.status === "error") {
+      errorHandler();
+    } else {
+      operation.successReactions.push(successHandler);
+      operation.errorReactions.push(errorHandler);
+    }
+
+    return completionOp;
   };
 
   return operation;
@@ -162,16 +159,19 @@ test("register success callback async", (done) => {
   });
 });
 
-test("life is full of async, nesting is inevitable, let's do something about it", () => {
+test.only("life is full of async, nesting is inevitable, let's do something about it", (done) => {
+  fetchCurrentCity()
+    .onCompletion(city => fetchWeather(city))
+    .onCompletion(weather => done());
 
-  let weatherOp = fetchCurrentCity().onCompletion((city) => {
-    return fetchWeather(city);
-  });
+  /*let weatherOp = new Operation();
 
-  //some other code needs weather
-  weatherOp.onCompletion((weather) => {
-    console.log("get weather after a while: ", weather);
-  })
+  fetchCurrentCity()
+    .onCompletion(city => {
+      fetchWeather(city).forwardCompletion(weatherOp);
+    });
+
+  weatherOp.onCompletion(weather => done());*/
 });
 
 test("lexical parallelism", (done) => {
