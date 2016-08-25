@@ -99,24 +99,33 @@ function Operation(name) {
     operation.succeed(result);
   };
 
-  operation.onFailure = function (onError) {
-    operation.onCompletion(null, onError);
+  operation.catch = function(onError) {
+    operation.then(null, onError);
   };
 
   operation.forwardCompletion = function (op) {
-    operation.onCompletion(op.succeed, op.fail);
+    operation.then(op.succeed, op.fail);
   };
 
-  operation.onCompletion = function (success, error) {
-    const completionOp = new Operation("tempo from onCompletion");
+  operation.then = function (success, error) {
+    const proxyOp = new Operation("tempo from then");
 
     function successHandler() {
       if (success) {
-        let op = success(operation.data);
+        try {
+          let op = success(operation.data);
 
-        if (op && op.onCompletion) {
-          op.forwardCompletion(completionOp);
+          if (op && op.then) {
+            op.forwardCompletion(proxyOp);
+          }
+        } catch(e) {
+          if (error) {
+            error(e);
+          } else {
+            return proxyOp.fail(e);
+          }
         }
+
       }
     }
 
@@ -125,8 +134,12 @@ function Operation(name) {
         let op = error(operation.data);
 
         if (op && op.forwardCompletion) {
-          op.forwardCompletion(completionOp);
+          op.forwardCompletion(proxyOp);
+        } else if(op != null) {
+          proxyOp.succeed(op);
         }
+      } else {
+        proxyOp.fail(operation.data);
       }
     }
 
@@ -139,9 +152,16 @@ function Operation(name) {
       operation.errorReactions.push(errorHandler);
     }
 
-    return completionOp;
+    return proxyOp;
   };
 
+  return operation;
+}
+
+
+function fetchCurrectCityThanFails() {
+  let operation = new Operation();
+  doLater(() => operation.fail("GPS BROKEN"));
   return operation;
 }
 
@@ -155,23 +175,46 @@ test("register success callback async", (done) => {
   let currentCity = fetchCurrentCity();
 
   doLater(function () {
-    currentCity.onCompletion(() => done());
+    currentCity.then(() => done());
   });
 });
 
-test.only("life is full of async, nesting is inevitable, let's do something about it", (done) => {
+test("life is full of async, nesting is inevitable, let's do something about it", (done) => {
   fetchCurrentCity()
-    .onCompletion(city => fetchWeather(city))
-    .onCompletion(weather => done());
+    .then(fetchWeather)
+    .then(printWeather);
 
-  /*let weatherOp = new Operation();
+  function printWeather(weather) {
+    console.log(weather);
+    done();
+  }
+});
 
-  fetchCurrentCity()
-    .onCompletion(city => {
-      fetchWeather(city).forwardCompletion(weatherOp);
-    });
+test.only("error recovery", done => {
 
-  weatherOp.onCompletion(weather => done());*/
+   /* fetchCurrentCity()
+      .then(city => {
+        throw new Error("Oh noes");
+        return fetchWeather(city);
+      })
+      .catch(err => {
+        console.log(err);
+        done();
+      })*/
+
+  fetchCurrectCityThanFails()
+    .then(city => {
+      expect(city).toBe("default city");
+      done();
+    })
+    .then(smth => {
+      console.log(smth);
+    })
+    .catch(err => {
+      console.log(err);
+      done();
+    })
+
 });
 
 test("lexical parallelism", (done) => {
@@ -180,8 +223,8 @@ test("lexical parallelism", (done) => {
   const weatherOp = fetchWeather(city);
   const forecastOp = fetchForecast(city);
 
-  weatherOp.onCompletion((weather) => {
-    forecastOp.onCompletion((forecast) => {
+  weatherOp.then((weather) => {
+    forecastOp.then((forecast) => {
       console.log(`It's currently ${weather.temp} in ${city} with a five day forecast of ${forecast.fiveDay}`);
       done();
     });
@@ -192,13 +235,13 @@ test("register only error handler, ignores success", (done) => {
   let multiDone = callDone(done).afterTwoCalls();
   let operation = fetchCurrentCity();
 
-  operation.onFailure(error => done(error));
-  operation.onCompletion(result => done());
+  operation.catch(error => done(error));
+  operation.then(result => done());
 });
 
 test("register only success handler, ignores error handler", (done) => {
   const operation = fetchCurrentCity();
 
-  operation.onCompletion(result => done(new Error("Shouldn't succeed")));
-  operation.onFailure(error => done());
+  operation.then(result => done(new Error("Shouldn't succeed")));
+  operation.catch(error => done());
 });
