@@ -1,6 +1,6 @@
 {
-  "private": true,
-  "name": "pluralsight-modern-async-js",
+  "private": false,
+  "name": "async_javascript",
   "dependencies": {
     "expect": "^1.20.1",
     "live-server": "^1.0.0"

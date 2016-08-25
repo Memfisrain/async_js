@@ -1,9 +1,11 @@
 const delayms = 1;
 
+const currentCity = "New York, NY";
+
 function getCurrentCity(callback) {
   setTimeout(function () {
 
-    const city = "New York, NY";
+    const city = currentCity;
     callback(null, city);
 
   }, delayms);
@@ -100,7 +102,7 @@ function Operation(name) {
   };
 
   operation.catch = function(onError) {
-    operation.then(null, onError);
+    return operation.then(null, onError);
   };
 
   operation.forwardCompletion = function (op) {
@@ -117,6 +119,8 @@ function Operation(name) {
 
           if (op && op.then) {
             op.forwardCompletion(proxyOp);
+          } else {
+            proxyOp.succeed(op);
           }
         } catch(e) {
           if (error) {
@@ -126,6 +130,8 @@ function Operation(name) {
           }
         }
 
+      } else {
+        proxyOp.succeed(operation.data);
       }
     }
 
@@ -159,7 +165,7 @@ function Operation(name) {
 }
 
 
-function fetchCurrectCityThanFails() {
+function fetchCurrentCityThatFails() {
   let operation = new Operation();
   doLater(() => operation.fail("GPS BROKEN"));
   return operation;
@@ -170,6 +176,16 @@ function doLater(func) {
 }
 
 suite.only("Operations");
+
+test.only("error recovery bypassed if not needed", done => {
+  fetchCurrentCity()
+    .catch(error => "default city")
+    .then(city => {
+      expect(city).toBe(currentCity);
+      done();
+    });
+})
+
 
 test("register success callback async", (done) => {
   let currentCity = fetchCurrentCity();
@@ -190,7 +206,7 @@ test("life is full of async, nesting is inevitable, let's do something about it"
   }
 });
 
-test.only("error recovery", done => {
+test("error recovery", done => {
 
    /* fetchCurrentCity()
       .then(city => {
@@ -202,7 +218,7 @@ test.only("error recovery", done => {
         done();
       })*/
 
-  fetchCurrectCityThanFails()
+  fetchCurrentCityThatFails()
     .then(city => {
       expect(city).toBe("default city");
       done();
@@ -216,6 +232,19 @@ test.only("error recovery", done => {
     })
 
 });
+
+test("sync error recovery", done => {
+  fetchCurrentCityThatFails()
+    .catch(error => {
+      console.log(error);
+      return "default city";
+    })
+    .then(city => {
+      expect(city).toBe("default city");
+      done();
+    });
+});
+
 
 test("lexical parallelism", (done) => {
   const city = "NYC";
