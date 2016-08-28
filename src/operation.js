@@ -79,18 +79,30 @@ function Operation(name) {
   };
 
   operation.fail = function (error) {
-    operation.data = error;
-    operation.status = "error";
-    operation.errorReactions.forEach(onError => onError(error));
-    operation.errorReactions = [];
+    if (operation.status === "pending") {
+      operation.data = error;
+      operation.status = "error";
+      operation.errorReactions.forEach(onError => onError(error));
+      operation.errorReactions = [];
+    }
   };
 
   operation.succeed = function (result) {
-    operation.data = result;
-    operation.status = "success";
-    operation.successReactions.forEach(onSuccess => onSuccess(result));
-    operation.successReactions = [];
+    if (operation.status === "pending") {
+      operation.data = result;
+      operation.status = "success";
+      operation.successReactions.forEach(onSuccess => onSuccess(result));
+      operation.successReactions = [];
+    }
   };
+
+  operation.resolve = function(value) {
+    if (value && value.then) {
+      value.forwardCompletion(operation);
+    } else {
+      operation.succeed(value);
+    }
+  }
 
   operation.nodeCallback = function (error, result) {
     if (error) {
@@ -112,16 +124,17 @@ function Operation(name) {
   operation.then = function (success, error) {
     const proxyOp = new Operation("tempo from then");
 
+    //hepler doAsync function
+    function doAsync(fn) {
+      return () => {
+        setTimeout(fn, 0);
+      };
+    }
+
     function successHandler() {
       if (success) {
         try {
           let op = success(operation.data);
-
-          if (op && op.then) {
-            op.forwardCompletion(proxyOp);
-          } else {
-            proxyOp.succeed(op);
-          }
         } catch(e) {
           if (error) {
             error(e);
@@ -130,6 +143,7 @@ function Operation(name) {
           }
         }
 
+        operation.resolve(op);
       } else {
         proxyOp.succeed(operation.data);
       }
@@ -137,25 +151,28 @@ function Operation(name) {
 
     function errorHandler() {
       if (error) {
-        let op = error(operation.data);
-
-        if (op && op.forwardCompletion) {
-          op.forwardCompletion(proxyOp);
-        } else if(op != null) {
-          proxyOp.succeed(op);
+        try {
+          let op = error(operation.data);
+        } catch(e) {
+          proxyOp.fail(e);
         }
+
+        operation.resolve(op);
       } else {
         proxyOp.fail(operation.data);
       }
     }
 
+    let asyncSuccessHandler = doAsync(successHandler);
+    let asyncErrorHandler = doAsync(errorHandler);
+
     if (operation.status === "success") {
-      successHandler();
+      asyncSuccessHandler();
     } else if (operation.status === "error") {
-      errorHandler();
+      asyncErrorHandler();
     } else {
-      operation.successReactions.push(successHandler);
-      operation.errorReactions.push(errorHandler);
+      operation.successReactions.push(asyncSuccessHandler);
+      operation.errorReactions.push(asyncErrorHandler);
     }
 
     return proxyOp;
@@ -171,19 +188,131 @@ function fetchCurrentCityThatFails() {
   return operation;
 }
 
+function fetchCurrentCityIndecisive() {
+  const operation = new Operation();
+
+  doLater(() => {
+    operation.succeed("NYD");
+    operation.succeed("Philly");
+  });
+
+  return operation;
+}
+
+function fetchCurrentCitySync() {
+  let operation = new Operation();
+  console.log("get current city");
+  operation.succeed(currentCity);
+  return operation;
+}
+
 function doLater(func) {
   setTimeout(func, 1);
 }
 
 suite.only("Operations");
 
-test.only("error recovery bypassed if not needed", done => {
+test("what does this print out", done => {
+  let ui;
+
+  fetchCurrentCitySync()
+    .then(city => {
+      console.log("city is received");
+      ui = city;
+    });
+
+  console.log("set to loading");
+
+  ui = "loading...";
+
+  setTimeout(() => {
+    expect(ui).toBe(currentCity);
+      done();
+  }, 1000);
+});
+
+test("what is resolve", done => {
+  let fetchCurrentCity = new Operation();
+  fetchCurrentCity.succeed("NYC");
+
+  let fetchClone = new Operation();
+  fetchClone.succeed(fetchCurrentCity);
+
+  fetchClone.then(city => {
+    expect(city).toBe("NYC");
+    done();
+  });
+});
+
+test("ensure that success handler are async", done => {
+  let operation = new Operation();
+  operation.succeed(currentCity);
+  operation.then(city => {
+    doneAlias();
+  });
+
+  let doneAlias = done;
+});
+
+test("ensure that error handler are async", done => {
+  let operation = new Operation();
+  operation.fail("Error")
+  operation.catch(err => {
+    doneAlias();
+  });
+
+  let doneAlias = done;
+});
+
+test("invoke succeed method twice", done => {
+  fetchCurrentCityIndecisive()
+    .then(res => {
+      expect(res).toBe("NYD");
+      return res;
+    })
+    .then(res => {
+      expect(res).toBe("NYD");
+      done();
+    })
+});
+
+test("protect from doubling up on success", done => {
+  fetchCurrentCityIndecisive()
+    .then(e => done());
+});
+
+test("error recovery bypassed if not needed", done => {
   fetchCurrentCity()
     .catch(error => "default city")
     .then(city => {
       expect(city).toBe(currentCity);
       done();
     });
+})
+
+test("thrown error recovery", done => {
+  fetchCurrentCity()
+    .then(city => {
+      throw new Error("Oh noes");
+      return fetchWeather(city);
+    })
+    .catch(e => done());
+});
+
+test("error, error recovery", done => {
+  fetchCurrentCity()
+    .then(city => {
+      throw new Error("oh noes");
+      return fetchWeather(City);
+    })
+    .catch(error => {
+      expect(error.message).toBe("oh noes");
+      throw new Error("Error from an error handler, ohhh no");
+    })
+    .catch(error => {
+      expect(error.message).toBe("Error from an error handler, ohhh no");
+      done();
+    })
 })
 
 
