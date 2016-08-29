@@ -177,7 +177,7 @@ function doLater(func) {
 
 suite.only("Operations");
 
-test.only("error recovery bypassed if not needed", done => {
+test("error recovery bypassed if not needed", done => {
   fetchCurrentCity()
     .catch(error => "default city")
     .then(city => {
