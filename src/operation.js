@@ -69,11 +69,10 @@ function fetchForecast(city) {
   return operation;
 }
 
-function Operation(name) {
+function Operation(callback) {
   const operation = {
     status: "pending",
     data: "",
-    name: name || "",
     successReactions: [],
     errorReactions: []
   };
@@ -85,7 +84,7 @@ function Operation(name) {
     operation.successReactions = [];
   }
 
-  operation.resolve = function(value) {
+  operation.resolve = function (value) {
     if (operation.status === "pending") {
       if (value && value.then) {
         value.then(internalResolve, internalReject);
@@ -102,7 +101,7 @@ function Operation(name) {
     operation.errorReactions = [];
   }
 
-  operation.reject = function(value) {
+  operation.reject = function (value) {
     if (operation.status === "pending") {
       if (value && value.then) {
         value.then(internalResolve, internalReject);
@@ -119,74 +118,80 @@ function Operation(name) {
     }
 
     operation.resolve(result);
-  };
+};
 
-  operation.catch = function(onError) {
-    return operation.then(null, onError);
-  };
+operation.catch = function (onError) {
+  return operation.then(null, onError);
+};
 
-  operation.then = function (success, error) {
-    const proxyOp = new Operation("tempo from then");
+operation.then = function (success, error) {
+  const proxyOp = new Operation("tempo from then");
 
-    //helper doAsync function
-    function doAsync(fn) {
-      return () => {
-        setTimeout(fn, 0);
-      };
-    }
+  //helper doAsync function
+  function doAsync(fn) {
+    return () => {
+      setTimeout(fn, 0);
+    };
+  }
 
-    function successHandler() {
-      let op;
+  function successHandler() {
+    let op;
 
-      if (success) {
-        try {
-          op = success(operation.data);
-        } catch(e) {
-          if (error) {
-            error(e);
-          } else {
-            return proxyOp.reject(e);
-          }
+    if (success) {
+      try {
+        op = success(operation.data);
+      } catch (e) {
+        if (error) {
+          error(e);
+        } else {
+          return proxyOp.reject(e);
         }
-
-        proxyOp.resolve(op);
-      } else {
-        proxyOp.resolve(operation.data);
       }
-    }
 
-    function errorHandler() {
-      let op;
-
-      if (error) {
-        try {
-          op = error(operation.data);
-        } catch(e) {
-          proxyOp.reject(e);
-        }
-
-        proxyOp.resolve(op);
-      } else {
-        proxyOp.reject(operation.data);
-      }
-    }
-
-    let asyncSuccessHandler = doAsync(successHandler);
-    let asyncErrorHandler = doAsync(errorHandler);
-
-    if (operation.status === "success") {
-      asyncSuccessHandler();
-    } else if (operation.status === "error") {
-      asyncErrorHandler();
+      proxyOp.resolve(op);
     } else {
-      operation.successReactions.push(asyncSuccessHandler);
-      operation.errorReactions.push(asyncErrorHandler);
+      proxyOp.resolve(operation.data);
     }
+  }
 
-    return proxyOp;
-  };
+  function errorHandler() {
+    let op;
 
-  return operation;
+    if (error) {
+      try {
+        op = error(operation.data);
+      } catch (e) {
+        proxyOp.reject(e);
+      }
+
+      proxyOp.resolve(op);
+    } else {
+      proxyOp.reject(operation.data);
+    }
+  }
+
+  let asyncSuccessHandler = doAsync(successHandler);
+  let asyncErrorHandler = doAsync(errorHandler);
+
+  if (operation.status === "success") {
+    asyncSuccessHandler();
+  } else if (operation.status === "error") {
+    asyncErrorHandler();
+  } else {
+    operation.successReactions.push(asyncSuccessHandler);
+    operation.errorReactions.push(asyncErrorHandler);
+  }
+
+  return proxyOp;
+};
+
+
+//execute callback function if it exists
+if (callback && typeof callback === "function") {
+  callback(operation.resolve, operation.reject);
+}
+
+return operation;
 }
 
 
@@ -218,6 +223,9 @@ function doLater(func) {
   setTimeout(func, 1);
 }
 
+
+
+//------------------------BEGIN TEST CASES------------------------
 suite.only("Operations");
 
 test("what does this print out", done => {
@@ -235,7 +243,7 @@ test("what does this print out", done => {
 
   setTimeout(() => {
     expect(ui).toBe(currentCity);
-      done();
+    done();
   }, 1000);
 });
 
@@ -253,8 +261,11 @@ test("what is resolve", done => {
 });
 
 test("ensure that success handler are async", done => {
-  let operation = new Operation();
-  operation.resolve(currentCity);
+  let operation = new Operation(function executor(resolve, reject) {
+    resolve(currentCity);
+  });
+
+  //operation.resolve(currentCity);
   operation.then(city => {
     doneAlias();
   });
@@ -345,15 +356,15 @@ test("life is full of async, nesting is inevitable, let's do something about it"
 
 test("error recovery", done => {
 
-   /* fetchCurrentCity()
-      .then(city => {
-        throw new Error("Oh noes");
-        return fetchWeather(city);
-      })
-      .catch(err => {
-        console.log(err);
-        done();
-      })*/
+  /* fetchCurrentCity()
+   .then(city => {
+   throw new Error("Oh noes");
+   return fetchWeather(city);
+   })
+   .catch(err => {
+   console.log(err);
+   done();
+   })*/
 
   fetchCurrentCityThatFails()
     .then(city => {
