@@ -46,25 +46,46 @@ function getForecast(city, callback) {
 }
 
 function fetchCurrentCity() {
-  let operation = new Operation("fetchCity");
+  let operation = new Operation(function executor(resolve, reject) {
+    getCurrentCity(function(error, result) {
+      if (error) {
+        reject(error);
+        return;
+      }
 
-  getCurrentCity(operation.nodeCallback);
+      resolve(result);
+    });
+  });
 
   return operation;
 }
 
 function fetchWeather(city) {
-  let operation = new Operation('fetchWeather');
+  let operation = new Operation(function executor(resolve, reject) {
+    getWeather(city, function(error, result) {
+      if (error) {
+        reject(error);
+        return;
+      }
 
-  getWeather(city, operation.nodeCallback);
+      resolve(result);
+    });
+  });
 
   return operation;
 }
 
 function fetchForecast(city) {
-  let operation = new Operation();
+  let operation = new Operation(function executor(resolve, reject) {
+    getForecast(city, function(error, result) {
+      if (error) {
+        reject(error);
+        return;
+      }
 
-  getForecast(city, operation.nodeCallback);
+      resolve(result);
+    });
+  });
 
   return operation;
 }
@@ -118,23 +139,24 @@ function Operation(callback) {
     }
 
     operation.resolve(result);
-};
+  };
 
-operation.catch = function (onError) {
-  return operation.then(null, onError);
-};
 
-operation.then = function (success, error) {
-  const proxyOp = new Operation("tempo from then");
-
-  //helper doAsync function
-  function doAsync(fn) {
+  operation.catch = function (onError) {
+    return operation.then(null, onError);
+  };
+  
+  operation.then = function (success, error) {
+    const proxyOp = new Operation("tempo from then");
+  
+    //helper doAsync function
+    function doAsync(fn) {
     return () => {
       setTimeout(fn, 0);
     };
-  }
-
-  function successHandler() {
+    }
+  
+    function successHandler() {
     let op;
 
     if (success) {
@@ -152,9 +174,9 @@ operation.then = function (success, error) {
     } else {
       proxyOp.resolve(operation.data);
     }
-  }
-
-  function errorHandler() {
+    }
+  
+    function errorHandler() {
     let op;
 
     if (error) {
@@ -168,31 +190,43 @@ operation.then = function (success, error) {
     } else {
       proxyOp.reject(operation.data);
     }
+    }
+  
+    let asyncSuccessHandler = doAsync(successHandler);
+    let asyncErrorHandler = doAsync(errorHandler);
+  
+    if (operation.status === "success") {
+      asyncSuccessHandler();
+    } else if (operation.status === "error") {
+      asyncErrorHandler();
+    } else {
+      operation.successReactions.push(asyncSuccessHandler);
+      operation.errorReactions.push(asyncErrorHandler);
+    }
+  
+    return proxyOp;
+  };
+
+
+  //execute callback function if it exists
+  if (callback && typeof callback === "function") {
+    callback(operation.resolve, operation.reject);
   }
+  
+  return operation;
+}
 
-  let asyncSuccessHandler = doAsync(successHandler);
-  let asyncErrorHandler = doAsync(errorHandler);
-
-  if (operation.status === "success") {
-    asyncSuccessHandler();
-  } else if (operation.status === "error") {
-    asyncErrorHandler();
-  } else {
-    operation.successReactions.push(asyncSuccessHandler);
-    operation.errorReactions.push(asyncErrorHandler);
-  }
-
-  return proxyOp;
+Operation.resolve = function(result) {
+  return new Operation(function(resolve) {
+    resolve(result);
+  });
 };
 
-
-//execute callback function if it exists
-if (callback && typeof callback === "function") {
-  callback(operation.resolve, operation.reject);
-}
-
-return operation;
-}
+Operation.reject = function(err) {
+  return new Operation(function(resolve, reject) {
+    reject(err);
+  });
+};
 
 
 function fetchCurrentCityThatFails() {
@@ -227,6 +261,20 @@ function doLater(func) {
 
 //------------------------BEGIN TEST CASES------------------------
 suite.only("Operations");
+
+test("use Operation.resolve method", () => {
+  Operation.resolve(currentCity)
+    .then(city => {
+      expect(city).toBe(currentCity);
+    });
+});
+
+test("use Operation.reject method", () => {
+  Operation.reject(new Error("Some"))
+    .then(err => {
+      expect(err).toBe("Some");
+    });
+});
 
 test("what does this print out", done => {
   let ui;
