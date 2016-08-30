@@ -282,6 +282,16 @@ function doLater(func) {
 //------------------------BEGIN TEST CASES------------------------
 suite.only("Operations");
 
+test("sync result transformation", ()=> {
+  return fetchCurrentCity()
+    .then(city => {
+      return "1009";
+    })
+    .then(zip => {
+      expect(zip).toBe("1000");
+    });
+});
+
 test("use Operation.resolve method", () => {
   Operation.resolve(currentCity)
     .then(city => {
