@@ -45,7 +45,7 @@ function getForecast(city, callback) {
   }, delayms);
 }
 
-function fetchCurrentCity() {
+/*function fetchCurrentCity() {
   let operation = new Operation(function executor(resolve, reject) {
     getCurrentCity(function(error, result) {
       if (error) {
@@ -58,9 +58,10 @@ function fetchCurrentCity() {
   });
 
   return operation;
-}
+}*/
 
-function fetchWeather(city) {
+
+/*function fetchWeather(city) {
   let operation = new Operation(function executor(resolve, reject) {
     getWeather(city, function(error, result) {
       if (error) {
@@ -88,7 +89,7 @@ function fetchForecast(city) {
   });
 
   return operation;
-}
+}*/
 
 function Operation(callback) {
   const operation = {
@@ -228,6 +229,25 @@ Operation.reject = function(err) {
   });
 };
 
+Operation.promisify = function(fn) {
+  return function(...args) {
+    console.log(args);
+    return new Operation(function executor(resolve, reject) {
+      fn.apply(fn, [...args, function callback(error, result) {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve(result);
+      }]);
+    });
+  }
+};
+
+const fetchCurrentCity = Operation.promisify(getCurrentCity);
+const fetchWeather = Operation.promisify(getWeather);
+const fetchForecast = Operation.promisify(getForecast);
 
 function fetchCurrentCityThatFails() {
   let operation = new Operation();
