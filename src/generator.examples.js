@@ -6,34 +6,59 @@ const weatherUrl = `http://api.openweathermap.org/data/2.5/weather?q=${city}&app
 const fiveDayUrl = `http://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${apiKey}&units=imperial`;
 
 function* me() {
-  const response = yield fetch(weatherUrl);
-  console.log("response");
+  const weather =  yield fetch(weatherUrl).then(response => response.json());
+  const forecast = yield fetch(fiveDayUrl).then(response => response.json());
+  return {
+    weather,
+    forecast
+  };
 }
 
-function assistant(generator, doneFn) {
-  remind();
+function assistant(generator) {
+  return new Promise(function executor(resolve, reject) {
+    remind(() => generator.next());
 
-  function remind(waitingFor) {
-    let next = generator.next(waitingFor);
-    let value = next.value;
+    function remind(resume) {
+      let next;
+  
+      try {
+        next = resume();
+      } catch(error) {
+        reject(error);
+      }
+      
+      if (next.done) {
+        resolve(next.value);
+        return;
+      }
+  
+      let promise = Promise.resolve(next.value);
 
-    if (typeof value.then == "function") {
-      value.then(res => {
-        doneFn();
-        return remind(res);
-      });
-    } else {
-      return value;
+      promise.then(
+        function fulfillReaction(result) {
+          remind(() => generator.next(result));
+        },
+        function rejectReaction(error) {
+          remind(() => generator.throw(error));
+        });
     }
-  }
-
+  });
 }
 
 suite.only("generators");
 
 test("generator can yield a promise", (done) => {
   let myGenerator = me();
-  assistant(myGenerator, done);
+
+  assistant(myGenerator, done)
+    .catch(error => {
+      console.log(`recover from error: ${error}`);
+      done();
+    })
+    .then(result => {
+      console.log(`Assistant is done with result: ${JSON.stringify(result)}`);
+      done();
+    })
 });
 
 
